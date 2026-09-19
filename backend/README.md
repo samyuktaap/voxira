@@ -6,7 +6,14 @@ BlindPay is a voice-first accessible payment system designed primarily for blind
 
 ---
 
-## 1. System Architecture
+## 1. System Architecture & Security Principles
+
+The backend implements authoritative transaction validation, device authentication challenges, and security policy rules:
+1. **Voice Input Safety Boundary**: Voice commands NEVER directly execute financial transactions. Voice acts solely as an input and conversational review layer.
+2. **KYC Recipient Resolution**: Maps spoken recipient names to verified banking contacts (e.g. `ravi` -> `Ravi Kumar`).
+3. **Amount & Recipient Integrity Protection**: Prevents amount or recipient tampering (e.g. altering ₹500 to ₹5000 in transit).
+4. **Two-Step Authorization**: Transactions require device authentication (`POST /api/payments/{id}/authenticate`) prior to final explicit confirmation (`POST /api/payments/{id}/confirm`).
+5. **Double-Payment & Replay Protection**: Idempotency keys and nonce tracking prevent duplicate charges.
 
 ```
                  ┌──────────────────┐
@@ -78,11 +85,11 @@ backend/
 │   │   ├── audit_service.py     # Security event audit logger (Redacted sensitive fields)
 │   │   ├── payment_provider.py  # Abstract PaymentProvider interface
 │   │   └── providers/           # Provider adapters (Sandbox, Razorpay)
-│   ├── security/                # Security layer (validation, authorization, idempotency, rate limiting)
+│   ├── security/                # Security layer (validation, authorization, idempotency, rate limiting, encryption)
 │   └── database/
 │       ├── database.py          # SQLAlchemy pooled engine & SessionLocal
 │       └── alembic/             # Database migrations (001_initial_schema, 002_supabase_rls_policies)
-├── tests/                       # Complete pytest suite (lifecycle, tampering, replay, idempotency)
+├── tests/                       # Complete pytest suite (lifecycle, tampering, replay, idempotency, encryption)
 ├── .env.example                 # Configuration template with Supabase fields
 ├── alembic.ini                  # Migration settings
 ├── requirements.txt             # Dependency specification
@@ -91,7 +98,19 @@ backend/
 
 ---
 
-## 4. Environment Variables Configuration
+## 4. API Endpoints
+
+- `GET /api/health`: Live health status & database ping.
+- `POST /api/payments/intents`: Ingests parsed voice intent and creates a verified payment intent (`AUTH_REQUIRED`).
+- `POST /api/payments/{transaction_id}/authenticate`: Verifies device biometric/platform authentication challenge.
+- `POST /api/payments/{transaction_id}/confirm`: Authoritatively executes payment upon explicit user confirmation (`SUCCESS` / `PENDING` / `FAILED`).
+- `GET /api/payments/{transaction_id}`: Authoritative payment status lookup.
+- `GET /api/payments/{transaction_id}/receipt`: Generates official transaction receipt based on real DB status.
+- `POST /api/payments/webhook`: Provider webhook ingestion with HMAC SHA-256 signature verification.
+
+---
+
+## 5. Environment Variables Configuration
 
 Copy `.env.example` to `.env` and supply your Supabase connection parameters:
 
@@ -124,7 +143,7 @@ PAYMENT_INTENT_EXPIRY_SECONDS=300
 
 ---
 
-## 5. Local Setup & Execution
+## 6. Local Setup & Execution
 
 ```powershell
 # Navigate to backend directory
@@ -136,7 +155,7 @@ pip install -r requirements.txt
 # Run Alembic migrations against Supabase PostgreSQL
 alembic upgrade head
 
-# Run automated tests
+# Run automated test suite
 python -m pytest -v
 
 # Start FastAPI server
